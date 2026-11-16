@@ -5,8 +5,9 @@
 //   node scripts/sync.mjs --watch 300          # keep running, sync every 5 minutes
 //
 // Options (or env vars):
-//   --url    CLAUDE_ANALYZER_URL     server base URL
+//   --url    CLAUDE_ANALYZER_URL     server base URL; comma-separated list = try in order
 //   --token  CLAUDE_ANALYZER_TOKEN   the server's INGEST_TOKEN
+//   --token-file CLAUDE_ANALYZER_TOKEN_FILE  default ~/.claude-analyzer-token (used when no token is given)
 //   --dir    CLAUDE_PROJECTS_DIR     default ~/.claude/projects
 //   --state  CLAUDE_ANALYZER_STATE   default ~/.claude-analyzer-sync.json (remembers file offsets)
 //   --watch  <seconds>               loop forever
@@ -27,16 +28,36 @@ function arg(name) {
   return v && !v.startsWith('--') ? v : true
 }
 
-const url = String(arg('url') ?? process.env.CLAUDE_ANALYZER_URL ?? '').replace(/\/+$/, '')
-const token = arg('token') ?? process.env.CLAUDE_ANALYZER_TOKEN
+// --url accepts a comma-separated list, tried in order (e.g. LAN address first, public URL second).
+const urls = String(arg('url') ?? process.env.CLAUDE_ANALYZER_URL ?? '').split(',').map(u => u.trim().replace(/\/+$/, '')).filter(Boolean)
+const tokenFile = arg('token-file') ?? process.env.CLAUDE_ANALYZER_TOKEN_FILE ?? path.join(os.homedir(), '.claude-analyzer-token')
+let token = arg('token') ?? process.env.CLAUDE_ANALYZER_TOKEN
+if (!token || token === true) {
+  try { token = fs.readFileSync(tokenFile, 'utf8').trim() } catch { /* no token file */ }
+}
+let url = ''
 const dir = arg('dir') ?? process.env.CLAUDE_PROJECTS_DIR ?? path.join(os.homedir(), '.claude', 'projects')
 const stateFile = arg('state') ?? process.env.CLAUDE_ANALYZER_STATE ?? path.join(os.homedir(), '.claude-analyzer-sync.json')
 const watch = Number(arg('watch')) || 0
 const MAX_RECORDS = 3000
 
-if (!url || !token || token === true) {
-  console.error('Usage: node scripts/sync.mjs --url <server url> --token <INGEST_TOKEN> [--watch 300]')
+if (!urls.length || !token || token === true) {
+  console.error('Usage: node scripts/sync.mjs --url <server url>[,<fallback url>] --token <INGEST_TOKEN> [--watch 300]')
+  console.error(`       (the token can also live in ${tokenFile})`)
   process.exit(2)
+}
+
+const UA = 'claude-analyzer-sync/1.0'
+
+/** Pick the first server that answers /api/health. */
+async function pickServer() {
+  for (const u of urls) {
+    try {
+      const r = await fetch(u + '/api/health', { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(4000) })
+      if (r.ok) return u
+    } catch { /* try next */ }
+  }
+  throw new Error(`no server reachable: ${urls.join(', ')}`)
 }
 
 function loadState() {
@@ -52,7 +73,7 @@ function saveState(s) {
 async function post(batch) {
   const res = await fetch(url + '/api/ingest', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
+    headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + token, 'user-agent': UA },
     body: JSON.stringify({ ...batch, host: os.hostname() }),
   })
   if (!res.ok) throw new Error(`HTTP ${res.status} ${await res.text().catch(() => '')}`.trim())
@@ -60,6 +81,7 @@ async function post(batch) {
 }
 
 async function syncOnce() {
+  url = await pickServer()
   const state = loadState()
   const files = listLogFiles(dir)
   let sent = 0

@@ -129,6 +129,24 @@ Then make it automatic:
 <details open>
 <summary><b>Windows (Task Scheduler, hidden window)</b></summary>
 
+**Quick way (uses the launcher shipped in this repo):**
+
+1. Put the token alone in `%USERPROFILE%\.claude-analyzer-token`, for example with `notepad $env:USERPROFILE\.claude-analyzer-token`.
+2. Edit the `urls` line in `scripts\sync-windows.vbs`. Several URLs are tried in order, so put the LAN address first and the public one second: `http://192.168.1.10:6969,https://claude.example.com`.
+3. Register the task:
+   ```powershell
+   schtasks /Create /TN "Claude Analyzer Sync" /SC MINUTE /MO 10 /TR "wscript.exe \"C:\path\to\claude-analyzer\scripts\sync-windows.vbs\"" /F
+   ```
+   Output goes to `%USERPROFILE%\.claude-analyzer-sync.log`.
+4. **On a laptop**, allow the task to run on battery. Windows' default holds it "queued" until you plug in:
+   ```powershell
+   Set-ScheduledTask -TaskName "Claude Analyzer Sync" -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 5))
+   ```
+
+**Cloudflare Tunnel note:** syncing through the tunnel works with no extra setup. If you protect the hostname with **Cloudflare Access**, either add a bypass policy for the path `/api/ingest` or use the LAN URL only. Otherwise Access answers the script with a login page.
+
+**Manual way:**
+
 1. Create `C:\Users\<you>\claude-analyzer-sync.vbs`. It runs the sync with no console window popping up:
 
    ```vbs
