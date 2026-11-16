@@ -1,0 +1,28 @@
+# Claude Analyzer - paste this into a Portainer stack (see DEPLOYMENT.md).
+services:
+  claude-analyzer:
+    image: ${IMAGE:-claude-analyzer:latest}
+    build: .
+    container_name: claude-analyzer
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      TZ: ${TZ:-UTC}
+      # Push mode: the sync script on your PC sends data with this token.
+      INGEST_TOKEN: ${INGEST_TOKEN:-}
+      # Protect the dashboard (recommended if it is reachable outside your LAN).
+      DASHBOARD_USER: ${DASHBOARD_USER:-admin}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
+      # Optional: real org usage/cost from the Anthropic Admin API.
+      ANTHROPIC_ADMIN_KEY: ${ANTHROPIC_ADMIN_KEY:-}
+      # Folder mode: rescan mounted logs every N seconds.
+      CLAUDE_PROJECTS_DIR: /claude/projects
+      SCAN_INTERVAL_SECONDS: ${SCAN_INTERVAL_SECONDS:-300}
+    volumes:
+      - claude-analyzer-data:/data
+      # Folder mode only: uncomment when Claude Code runs on the Docker host itself.
+      # - /home/youruser/.claude/projects:/claude/projects:ro
+
+volumes:
+  claude-analyzer-data:
